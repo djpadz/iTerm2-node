@@ -1,14 +1,35 @@
 {
   "name": "iterm2-node",
   "version": "0.1.0",
-  "description": "Node.js (TypeScript) client for the iTerm2 WebSocket API.",
+  "description": "TypeScript client for the iTerm2 WebSocket API. Faithful port of the official Python `iterm2` package.",
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
     "src",
-    "proto"
+    "proto",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "author": "Dj Padzensky <djpadz@padz.net>",
+  "homepage": "https://github.com/djpadz/iterm2-node#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/djpadz/iterm2-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/djpadz/iterm2-node/issues"
+  },
+  "keywords": [
+    "iterm2",
+    "iterm",
+    "terminal",
+    "macos",
+    "websocket",
+    "protobuf",
+    "automation"
   ],
   "scripts": {
     "codegen": "pbjs -t static-module -w commonjs --force-number --null-defaults -o src/generated/api.js proto/api.proto && pbts -o src/generated/api.d.ts src/generated/api.js",
@@ -17,8 +38,9 @@
     "typecheck": "tsc -p tsconfig.examples.json",
     "test": "tsx --test test/*.test.ts",
     "test:live": "ITERM2_TEST_MODE=live tsx --test test/shared.test.ts test/live.test.ts",
-    "test:live:mutate": "ITERM2_TEST_MODE=live ITERM2_TEST_MUTATE=1 tsx --test test/shared.test.ts test/live.test.ts",
-    "prepublishOnly": "npm run clean && npm run codegen && npm run build",
+    "test:live:mutate": "ITERM2_TEST_MUTATE=1 npm run test:live",
+    "prepare": "[ -f src/generated/api.js ] || npm run codegen && npm run build",
+    "prepublishOnly": "npm run clean && npm run codegen && npm run build && npm test",
     "example:list-sessions": "tsx examples/list-sessions.ts",
     "example:notifications": "tsx examples/notifications.ts",
     "example:app-tree": "tsx examples/app-tree.ts"
@@ -27,12 +49,12 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@types/ws": "^8.5.10",
     "protobufjs": "^8.6.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "@types/ws": "^8.5.10",
     "protobufjs-cli": "^2.5.2",
     "tsx": "^4.19.0",
     "typescript": "^5.5.4"

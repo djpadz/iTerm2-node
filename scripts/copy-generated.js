@@ -4,15 +4,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SRC = path.join(__dirname, '..', 'src', 'generated', 'api.js');
+const SRC_DIR = path.join(__dirname, '..', 'src', 'generated');
 const DEST_DIR = path.join(__dirname, '..', 'dist', 'generated');
-const DEST = path.join(DEST_DIR, 'api.js');
 const DIST = path.join(__dirname, '..', 'dist');
 
 fs.mkdirSync(DEST_DIR, { recursive: true });
-fs.copyFileSync(SRC, DEST);
+// Both the runtime bundle (api.js) and its hand-generated types (api.d.ts)
+// need to ship to consumers — tsc doesn't emit .d.ts from .d.ts inputs, so
+// we copy both manually.
+for (const file of ['api.js', 'api.d.ts']) {
+  fs.copyFileSync(path.join(SRC_DIR, file), path.join(DEST_DIR, file));
+}
 
-// Report what tsc + copy produced.
 const jsCount = fs.readdirSync(DIST).filter((f) => f.endsWith('.js')).length;
 const dtsCount = fs.readdirSync(DIST).filter((f) => f.endsWith('.d.ts')).length;
 console.log(

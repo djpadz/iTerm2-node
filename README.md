@@ -5,19 +5,47 @@ Python `iterm2` package — protobuf messages over a WebSocket, Unix-domain-sock
 preferred with TCP fallback, AppleScript cookie auth, full high-level class
 hierarchy (App / Window / Tab / Session / Profile / Triggers / …).
 
-## Install / build
-
-```sh
-npm install
-npm run codegen   # regenerate src/generated/api.{js,d.ts} from proto/api.proto
-npm run build     # emit dist/*.js + dist/*.d.ts
-```
-
-`npm install` runs `codegen` and `build` for you the first time. Re-run
-`codegen` when you update `proto/api.proto`.
+## Install
 
 Requires Node ≥ 18 and macOS (iTerm2 only runs on macOS). In iTerm2 itself,
 enable **Settings → General → Magic → Enable Python API**.
+
+### From a git URL
+
+```sh
+npm install git+https://github.com/djpadz/iterm2-node.git
+# or a specific tag / branch / commit:
+npm install git+https://github.com/djpadz/iterm2-node.git#v0.1.0
+```
+
+npm clones the repo, runs `npm install` to fetch the build toolchain, then
+runs the `prepare` script (codegen + `tsc`) to populate `dist/`. The full
+install takes a few seconds.
+
+### From a packed tarball
+
+```sh
+# In this repo:
+npm pack                    # produces iterm2-node-0.1.0.tgz
+
+# In the consumer project:
+npm install /path/to/iterm2-node-0.1.0.tgz
+```
+
+The tarball ships `dist/`, `src/`, `proto/`, `LICENSE`, and `README.md`. No
+build step on the consumer side.
+
+### Build / develop locally
+
+```sh
+npm install            # installs deps; `prepare` runs codegen + tsc
+npm run codegen        # regenerate src/generated/api.{js,d.ts} after editing proto/api.proto
+npm run build          # tsc + copy generated proto bundle to dist/
+```
+
+`src/generated/api.{js,d.ts}` are committed to the repo so `prepare` can
+skip codegen on fresh installs. Re-run `npm run codegen` whenever
+`proto/api.proto` changes.
 
 ## Quick start
 
