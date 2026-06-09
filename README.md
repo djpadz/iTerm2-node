@@ -154,6 +154,43 @@ npm run example:notifications   # subscribe to focus changes
 
 Examples are TypeScript and run via `tsx` (no rebuild needed).
 
+## Tests
+
+```sh
+npm test                 # mock mode (default) — fast, deterministic, CI-friendly
+npm run test:live        # shared + live tests against a running iTerm2
+npm run test:live:mutate # live + mutating tests (set/get user variable, etc.)
+npm run typecheck        # tsc --noEmit over src + examples + test
+```
+
+Tests live in `test/`. Coverage:
+
+- **Pure logic** — `util` (Size/Point/Frame/Range/CoordRange/encoding helpers),
+  `color`, `profile` (LocalWriteOnlyProfile + Profile property decode), `auth`.
+- **Proto round-trip** — encode → decode of every shape the wire layer touches.
+- **Mock-only** (`connection.test.ts`, `api.test.ts`, `notifications.test.ts`)
+  — request-payload assertions, error/status-code edge cases (e.g.
+  `ALREADY_SUBSCRIBED` is treated as success), behaviors that need a hung
+  server, HTTP 406 handling.
+- **Shared dual-mode** (`shared.test.ts`) — open Connection, round-trip
+  `ListSessions`, concurrent requests resolve to the right ids, subscription
+  handshake, well-formed window/tab tree. Each test programs a mock canned
+  response via `harness.setHandler(...)`; on live mode that call is a no-op
+  and iTerm2's real reply comes back, so the same assertions hold.
+- **Live-only** (`live.test.ts`) — `App.getApp` populates the tree,
+  `Profile.getAll` returns at least the default profile, `protocolVersion`
+  is `[1, N]`, theme variable resolves. Gated on
+  `ITERM2_TEST_MODE=live`. State-changing tests further require
+  `ITERM2_TEST_MUTATE=1`.
+
+The harness (`test/helpers/harness.ts`) picks the backend at startup. The
+mock backend uses a `ws`-backed `WebSocketServer` on a random localhost port
+(`test/helpers/mock-server.ts`) that speaks the real protobuf wire format,
+so request ids, oneof dispatch, and subscribe/broadcast semantics are
+exercised end-to-end. The same `Connection.create({ endpoint, skipAuth })`
+options the harness uses are public — point the client at your own record /
+replay server the same way.
+
 ## Notes
 
 - **Async + cancellation** — Python uses `async with`/`async for` and

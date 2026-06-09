@@ -40,6 +40,17 @@ export interface ConnectionOptions {
   retry?: boolean;
   /** Launch iTerm2 if it isn't running. */
   launchIfNeeded?: boolean;
+  /**
+   * Override the WebSocket endpoint (TCP form, e.g. `ws://localhost:12345/`).
+   * Skips the UDS probe. Intended for tests against a mock server.
+   */
+  endpoint?: string;
+  /**
+   * Skip the AppleScript cookie acquisition. The caller is responsible for
+   * setting `ITERM2_COOKIE` / `ITERM2_KEY` in env (or it can be omitted when
+   * the test server doesn't validate). Intended for tests.
+   */
+  skipAuth?: boolean;
 }
 
 /** A decoded ServerOriginatedMessage. */
@@ -125,15 +136,23 @@ export class Connection extends EventEmitter {
   private async _connectWithRetry({
     retry = false,
     launchIfNeeded = false,
+    endpoint,
+    skipAuth = false,
   }: ConnectionOptions): Promise<void> {
-    let haveFreshCookie = await authenticate({ launchIfNeeded }).catch(
-      () => false
-    );
+    let staleRetried = false;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
+      // Authenticate at the TOP of every loop iteration. `authenticate(false)`
+      // is a no-op if ITERM2_COOKIE is already set in env, so this is cheap
+      // on the happy path and correct on retries (the `finally` below wipes
+      // env between attempts so each retry re-mints via osascript).
+      const haveFreshCookie = skipAuth
+        ? true
+        : await authenticate({ launchIfNeeded }).catch(() => false);
+
       try {
-        await this._openWebSocket();
+        await this._openWebSocket(endpoint);
         this._attachReadLoop();
         return;
       } catch (raw) {
@@ -142,20 +161,17 @@ export class Connection extends EventEmitter {
 
         if (status === 401) {
           if (retry) {
-            while (!haveFreshCookie) {
-              await sleep(500);
-              haveFreshCookie = await authenticate({
-                launchIfNeeded: true,
-              }).catch(() => false);
-            }
+            // Keep retrying — wipe env so the next iter re-mints.
+            removeAuth();
+            if (!haveFreshCookie) await sleep(500);
             continue;
           }
-          if (haveFreshCookie) throw err;
+          // Non-retry: if a fresh cookie just failed, or we've already had
+          // one retry-with-fresh attempt, give up.
+          if (haveFreshCookie || staleRetried) throw err;
+          // Stale cookie was in env. Drop it; one more iter will mint fresh.
           removeAuth();
-          haveFreshCookie = await authenticate({
-            launchIfNeeded: true,
-          }).catch(() => false);
-          if (!haveFreshCookie) throw err;
+          staleRetried = true;
           continue;
         }
 
@@ -197,7 +213,7 @@ export class Connection extends EventEmitter {
     }
   }
 
-  private _openWebSocket(): Promise<void> {
+  private _openWebSocket(endpoint?: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const wsOpts: ClientOptions = {
         headers: buildHeaders(),
@@ -207,7 +223,9 @@ export class Connection extends EventEmitter {
       };
 
       let ws: WebSocket;
-      if (fs.existsSync(UDS_PATH)) {
+      if (endpoint) {
+        ws = new WebSocket(endpoint, [SUBPROTOCOL], wsOpts);
+      } else if (fs.existsSync(UDS_PATH)) {
         // ws@8 strips a user-provided `socketPath` from its options object
         // (see `initAsClient` defaults in node_modules/ws/lib/websocket.js).
         // The supported escape hatch is a custom `createConnection`. We can't

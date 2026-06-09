@@ -5,5 +5,5 @@
     "outDir": "dist-examples",
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "examples/**/*.ts"]
+  "include": ["src/**/*.ts", "examples/**/*.ts", "test/**/*.ts"]
 }
