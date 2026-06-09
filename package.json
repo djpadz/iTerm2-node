@@ -1,0 +1,40 @@
+{
+  "name": "iterm2-node",
+  "version": "0.1.0",
+  "description": "Node.js (TypeScript) client for the iTerm2 WebSocket API.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "proto"
+  ],
+  "scripts": {
+    "codegen": "pbjs -t static-module -w commonjs --force-number --null-defaults -o src/generated/api.js proto/api.proto && pbts -o src/generated/api.d.ts src/generated/api.js",
+    "build": "tsc -p tsconfig.json && node scripts/copy-generated.js",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.examples.json",
+    "prepublishOnly": "npm run clean && npm run codegen && npm run build",
+    "example:list-sessions": "tsx examples/list-sessions.ts",
+    "example:notifications": "tsx examples/notifications.ts",
+    "example:app-tree": "tsx examples/app-tree.ts"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "protobufjs": "^8.6.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.10",
+    "protobufjs-cli": "^2.5.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4"
+  },
+  "os": [
+    "darwin"
+  ]
+}
