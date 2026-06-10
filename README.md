@@ -5,6 +5,10 @@ Python `iterm2` package — protobuf messages over a WebSocket, Unix-domain-sock
 preferred with TCP fallback, AppleScript cookie auth, full high-level class
 hierarchy (App / Window / Tab / Session / Profile / Triggers / …).
 
+## Warning
+
+This is a work in progress.  Breaking changes are to be expected.  It's still undergoing a lot of testing.
+
 ## Install
 
 Requires Node ≥ 18 and macOS (iTerm2 only runs on macOS). In iTerm2 itself,
