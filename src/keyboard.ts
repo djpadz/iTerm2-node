@@ -11,13 +11,9 @@
  */
 
 import type { Connection } from './connection';
+import { BaseMonitor, withMonitor } from './monitor';
 import type { iterm2 } from './generated/api';
-import {
-  subscribeToKeystrokeNotification,
-  unsubscribe,
-  type KeystrokeCallback,
-  type SubscriptionToken,
-} from './notifications';
+import { subscribeToKeystrokeNotification } from './notifications';
 
 // ---------------------------------------------------------------------------
 // Modifier
@@ -326,93 +322,35 @@ export class KeystrokePattern {
  * If `advanced` is true, key-up and flags-changed events are also reported
  * (in addition to key-down).
  */
-export class KeystrokeMonitor {
-  private _token: SubscriptionToken<KeystrokeNotif> | null = null;
-  private _queue: KeystrokeNotif[] = [];
-  private _waiters: Array<(value: KeystrokeNotif) => void> = [];
-
+export class KeystrokeMonitor extends BaseMonitor<Keystroke> {
   constructor(
-    private readonly conn: Connection,
+    conn: Connection,
     private readonly session: string | null = null,
     private readonly advanced: boolean = false
-  ) {}
-
-  /** Subscribe to keystroke notifications. Idempotent. */
-  async start(): Promise<this> {
-    if (this._token) return this;
-    const callback: KeystrokeCallback = async (_c, notif) => this._enqueue(notif);
-    this._token = await subscribeToKeystrokeNotification(this.conn, callback, {
-      session: this.session,
-      advanced: this.advanced,
-    });
-    return this;
+  ) {
+    super(conn);
   }
 
-  /** Unsubscribe. Safe to call multiple times. */
-  async stop(): Promise<void> {
-    if (!this._token) return;
-    try {
-      await unsubscribe(this.conn, this._token);
-    } catch {
-      /* ignore */
-    }
-    this._token = null;
-  }
-
-  /** Resolve with the next `Keystroke`. */
-  async get(): Promise<Keystroke> {
-    const notif = await this._next();
-    return new Keystroke(notif);
-  }
-
-  /** Async iterator yielding keystrokes forever. Starts/stops automatically. */
-  async *[Symbol.asyncIterator](): AsyncIterableIterator<Keystroke> {
-    await this.start();
-    try {
-      while (true) {
-        yield await this.get();
-      }
-    } finally {
-      await this.stop();
-    }
+  protected _subscribe() {
+    return subscribeToKeystrokeNotification(
+      this.conn,
+      async (_c, notif) => this._deliver(new Keystroke(notif)),
+      { session: this.session, advanced: this.advanced }
+    );
   }
 
   /**
    * Convenience: run `fn(monitor)` between start and stop.
    */
-  static async with<T>(
+  static with<T>(
     conn: Connection,
-    opts: {
-      session?: string | null;
-      advanced?: boolean;
-    },
+    opts: { session?: string | null; advanced?: boolean },
     fn: (mon: KeystrokeMonitor) => Promise<T>
   ): Promise<T> {
-    const mon = await new KeystrokeMonitor(
-      conn,
-      opts.session ?? null,
-      opts.advanced ?? false
-    ).start();
-    try {
-      return await fn(mon);
-    } finally {
-      await mon.stop();
-    }
-  }
-
-  private _enqueue(notif: KeystrokeNotif): void {
-    const waiter = this._waiters.shift();
-    if (waiter) {
-      waiter(notif);
-    } else {
-      this._queue.push(notif);
-    }
-  }
-
-  private _next(): Promise<KeystrokeNotif> {
-    const next = this._queue.shift();
-    if (next) return Promise.resolve(next);
-    return new Promise((resolve) => this._waiters.push(resolve));
+    return withMonitor(
+      new KeystrokeMonitor(conn, opts.session ?? null, opts.advanced ?? false),
+      fn
+    );
   }
 }
 

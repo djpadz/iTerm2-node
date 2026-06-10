@@ -103,6 +103,10 @@ export type {
   ServerOriginatedRpcCallback,
 } from './notifications';
 
+// ----- Monitor base class ----------------------------------------------
+
+export { BaseMonitor, withMonitor } from './monitor';
+
 // ----- Core hierarchy --------------------------------------------------
 
 export { VariableScopes, VariableMonitor } from './variables';

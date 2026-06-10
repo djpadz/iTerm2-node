@@ -18,6 +18,7 @@ import {
   subscribeToBroadcastDomainsChangeNotification,
   type SubscriptionToken,
 } from './notifications';
+import { setScopedVariable, getScopedVariable } from './_internal';
 
 let instance: App | null = null;
 
@@ -182,23 +183,12 @@ export class App
     return [null, null];
   }
 
-  async setVariable(name: string, value: unknown): Promise<void> {
-    const res = await this.api.variable({
-      app: true,
-      set: [{ name, value: JSON.stringify(value) }],
-    });
-    if ((res.status ?? 0) !== 0) {
-      throw new RPCException(`setVariable failed (status=${res.status})`);
-    }
+  setVariable(name: string, value: unknown): Promise<void> {
+    return setScopedVariable(this.api, { app: true }, name, value);
   }
 
-  async getVariable(name: string): Promise<unknown> {
-    const res = await this.api.variable({ app: true, get: [name] });
-    if ((res.status ?? 0) !== 0) {
-      throw new RPCException(`getVariable failed (status=${res.status})`);
-    }
-    const raw = res.values?.[0];
-    return raw == null || raw === '' ? null : JSON.parse(raw);
+  getVariable(name: string): Promise<unknown> {
+    return getScopedVariable(this.api, { app: true }, name);
   }
 
   async getTheme(): Promise<string[]> {

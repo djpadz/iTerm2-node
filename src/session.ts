@@ -22,6 +22,14 @@ import {
   type VariableChangedCallback,
 } from './notifications';
 import { invocationString } from './util';
+import {
+  STATUS_OK,
+  checkStatus,
+  setScopedVariable,
+  getScopedVariable,
+  closeTarget,
+  invokeFunctionFor,
+} from './_internal';
 
 export class RPCException extends Error {
   constructor(message: string) {
@@ -127,18 +135,6 @@ export class Splitter {
       }
     }
     return { vertical: this.vertical, links };
-  }
-}
-
-const STATUS_OK = 0;
-
-function statusName(_status: number): string {
-  return `status=${_status}`;
-}
-
-function checkStatus(status: number | null | undefined, label: string): void {
-  if ((status ?? 0) !== STATUS_OK) {
-    throw new RPCException(`${label} failed (${statusName(status ?? 0)})`);
   }
 }
 
@@ -305,31 +301,20 @@ export class Session {
   }
 
   async close(force = false): Promise<void> {
-    const res = await this.api.closeRequest({
-      sessions: { sessionIds: [this._sessionId] },
-      force,
-    });
-    const status = res.statuses?.[0] ?? STATUS_OK;
-    checkStatus(status, 'close');
+    await closeTarget(
+      this.api,
+      { sessions: { sessionIds: [this._sessionId] } },
+      force
+    );
   }
 
   /** Set or get a session-scoped user variable (`user.foo`). */
-  async setVariable(name: string, value: unknown): Promise<void> {
-    const res = await this.api.variable({
-      sessionId: this._sessionId,
-      set: [{ name, value: JSON.stringify(value) }],
-    });
-    checkStatus(res.status, 'setVariable');
+  setVariable(name: string, value: unknown): Promise<void> {
+    return setScopedVariable(this.api, { sessionId: this._sessionId }, name, value);
   }
 
-  async getVariable(name: string): Promise<unknown> {
-    const res = await this.api.variable({
-      sessionId: this._sessionId,
-      get: [name],
-    });
-    checkStatus(res.status, 'getVariable');
-    const raw = res.values?.[0];
-    return raw == null || raw === '' ? null : JSON.parse(raw);
+  getVariable(name: string): Promise<unknown> {
+    return getScopedVariable(this.api, { sessionId: this._sessionId }, name);
   }
 
   /** Resize via SetProperty — only meaningful for single-pane tabs. */
@@ -401,21 +386,13 @@ export class Session {
 
   // ----- function invocation --------------------------------------------
 
-  async invokeFunction(invocation: string, timeoutSeconds = -1): Promise<unknown> {
-    const res = await this.api.invokeFunction({
+  invokeFunction(invocation: string, timeoutSeconds = -1): Promise<unknown> {
+    return invokeFunctionFor(
+      this.api,
+      { session: { sessionId: this._sessionId } },
       invocation,
-      session: { sessionId: this._sessionId },
-      timeout: timeoutSeconds,
-    });
-    if (res.error) {
-      throw new RPCException(
-        `invokeFunction: status=${res.error.status} ${res.error.errorReason ?? ''}`
-      );
-    }
-    if (res.success) {
-      return res.success.jsonResult ? JSON.parse(res.success.jsonResult) : null;
-    }
-    return null;
+      timeoutSeconds
+    );
   }
 
   // ----- notifications --------------------------------------------------

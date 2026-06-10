@@ -393,6 +393,12 @@ type ScreenUpdateNotif = iterm2.ScreenUpdateNotification.$Properties;
  * `start()` before calling `get()` and `stop()` when done (or use
  * `ScreenStreamer.with()`).
  */
+/**
+ * ScreenStreamer keeps its own coalescing queue (only the most recent
+ * unread update is retained) rather than the FIFO BaseMonitor offers, and
+ * its `get()` returns the fetched contents instead of the raw notification.
+ * For these two reasons it doesn't share BaseMonitor.
+ */
 export class ScreenStreamer {
   private _token: SubscriptionToken<ScreenUpdateNotif> | null = null;
   private _waiter: ((notif: ScreenUpdateNotif) => void) | null = null;
@@ -408,7 +414,6 @@ export class ScreenStreamer {
     }
   }
 
-  /** Subscribe to screen-update notifications. */
   async start(): Promise<this> {
     if (this._token) return this;
     this._token = await subscribeToScreenUpdateNotification(
@@ -419,7 +424,6 @@ export class ScreenStreamer {
     return this;
   }
 
-  /** Unsubscribe. Safe to call multiple times. */
   async stop(): Promise<void> {
     if (!this._token) return;
     try {
@@ -431,13 +435,11 @@ export class ScreenStreamer {
   }
 
   private _onUpdate(notif: ScreenUpdateNotif): void {
-    // Match the Python "ignore reentrant" semantics: only one waiter at a time.
     if (this._waiter) {
       const w = this._waiter;
       this._waiter = null;
       w(notif);
     } else {
-      // Coalesce — only remember the most recent update if no waiter present.
       this._pending = notif;
     }
   }
@@ -456,9 +458,8 @@ export class ScreenStreamer {
   /**
    * Block until the screen contents change.
    *
-   * If this streamer was configured with `wantContents=true` (the default),
-   * the new screen contents are fetched and returned. Otherwise resolves to
-   * `null`.
+   * If `wantContents=true` (the default), the new screen contents are
+   * fetched and returned. Otherwise resolves to `null`.
    *
    * @throws {RPCException} on RPC failure.
    */
@@ -477,7 +478,6 @@ export class ScreenStreamer {
     return new ScreenContents(res);
   }
 
-  /** Convenience: run `fn(streamer)` between start and stop. */
   static async with<T>(
     connection: Connection,
     sessionId: string,

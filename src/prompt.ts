@@ -5,14 +5,11 @@
 
 import type { Connection } from './connection';
 import { Api } from './api';
+import { BaseMonitor, withMonitor } from './monitor';
 import type { iterm2 } from './generated/api';
 import { CoordRange } from './util';
 import { RPCException } from './session';
-import {
-  subscribeToPromptNotification,
-  unsubscribe,
-  type SubscriptionToken,
-} from './notifications';
+import { subscribeToPromptNotification } from './notifications';
 
 export enum PromptState {
   /** This version of iTerm2 does not report prompt state. */
@@ -159,11 +156,11 @@ export async function listPrompts(
  */
 export enum PromptMonitorMode {
   /** Notify when prompt detected. */
-  PROMPT = 0,
+  PROMPT = 1,
   /** Notify when a command begins execution. */
-  COMMAND_START = 1,
+  COMMAND_START = 2,
   /** Notify when a command finishes execution. */
-  COMMAND_END = 2,
+  COMMAND_END = 3,
 }
 
 type PromptNotif = iterm2.PromptNotification.$Properties;
@@ -180,6 +177,34 @@ export interface PromptMonitorEvent {
   value: Prompt | string | number | null;
   /** Unique prompt ID, or `null` if unavailable. */
   uniquePromptId: string | null;
+}
+
+function decodePromptEvent(message: PromptNotif): PromptMonitorEvent {
+  const which = message.event;
+  if (which === 'prompt' || which == null) {
+    const promptProto = message.prompt?.prompt ?? null;
+    const value = promptProto ? new Prompt(promptProto) : null;
+    return {
+      mode: PromptMonitorMode.PROMPT,
+      value,
+      uniquePromptId: message.uniquePromptId ?? null,
+    };
+  }
+  if (which === 'commandStart') {
+    return {
+      mode: PromptMonitorMode.COMMAND_START,
+      value: message.commandStart?.command ?? '',
+      uniquePromptId: message.uniquePromptId ?? null,
+    };
+  }
+  if (which === 'commandEnd') {
+    return {
+      mode: PromptMonitorMode.COMMAND_END,
+      value: message.commandEnd?.status ?? 0,
+      uniquePromptId: message.uniquePromptId ?? null,
+    };
+  }
+  throw new RPCException(`Unexpected oneof in prompt notification: ${which}`);
 }
 
 /**
@@ -199,119 +224,41 @@ export interface PromptMonitorEvent {
  * }
  * ```
  */
-export class PromptMonitor {
+export class PromptMonitor extends BaseMonitor<PromptMonitorEvent> {
   private readonly _modes: PromptMonitorMode[];
-  private _token: SubscriptionToken<PromptNotif> | null = null;
-  private readonly _queue: PromptNotif[] = [];
-  private readonly _waiters: Array<(notif: PromptNotif) => void> = [];
 
   constructor(
-    public readonly connection: Connection,
+    connection: Connection,
     public readonly sessionId: string,
     modes?: PromptMonitorMode[] | null
   ) {
+    super(connection);
     this._modes = modes && modes.length > 0 ? modes : [PromptMonitorMode.PROMPT];
   }
 
-  /** Subscribe to prompt notifications. Resolves to `this`. */
-  async start(): Promise<this> {
-    if (this._token) return this;
-    this._token = await subscribeToPromptNotification(
-      this.connection,
-      async (_c, notif) => this._enqueue(notif),
+  /** Alias retained for compatibility with the original API. */
+  get connection(): Connection {
+    return this.conn;
+  }
+
+  protected _subscribe() {
+    return subscribeToPromptNotification(
+      this.conn,
+      async (_c, message) => this._deliver(decodePromptEvent(message)),
       {
         session: this.sessionId,
         modes: this._modes as unknown as iterm2.PromptMonitorMode[],
       }
     );
-    return this;
-  }
-
-  /** Unsubscribe. Safe to call multiple times. */
-  async stop(): Promise<void> {
-    if (!this._token) return;
-    try {
-      await unsubscribe(this.connection, this._token);
-    } catch {
-      /* ignore */
-    }
-    this._token = null;
-  }
-
-  /**
-   * Block until the next prompt event. Returns a `PromptMonitorEvent`
-   * describing it.
-   *
-   * @throws {RPCException} if the notification has an unexpected shape.
-   */
-  async get(): Promise<PromptMonitorEvent> {
-    const message = await this._next();
-    const which = message.event;
-    if (which === 'prompt' || which == null) {
-      const promptProto = message.prompt?.prompt ?? null;
-      const value = promptProto ? new Prompt(promptProto) : null;
-      return {
-        mode: PromptMonitorMode.PROMPT,
-        value,
-        uniquePromptId: message.uniquePromptId ?? null,
-      };
-    }
-    if (which === 'commandStart') {
-      return {
-        mode: PromptMonitorMode.COMMAND_START,
-        value: message.commandStart?.command ?? '',
-        uniquePromptId: message.uniquePromptId ?? null,
-      };
-    }
-    if (which === 'commandEnd') {
-      return {
-        mode: PromptMonitorMode.COMMAND_END,
-        value: message.commandEnd?.status ?? 0,
-        uniquePromptId: message.uniquePromptId ?? null,
-      };
-    }
-    throw new RPCException(`Unexpected oneof in prompt notification: ${which}`);
-  }
-
-  /** Async iterator yielding successive `PromptMonitorEvent`s forever. */
-  async *[Symbol.asyncIterator](): AsyncIterableIterator<PromptMonitorEvent> {
-    await this.start();
-    try {
-      while (true) {
-        yield await this.get();
-      }
-    } finally {
-      await this.stop();
-    }
-  }
-
-  private _enqueue(notif: PromptNotif): void {
-    const waiter = this._waiters.shift();
-    if (waiter) {
-      waiter(notif);
-    } else {
-      this._queue.push(notif);
-    }
-  }
-
-  private _next(): Promise<PromptNotif> {
-    const next = this._queue.shift();
-    if (next) return Promise.resolve(next);
-    return new Promise((resolve) => this._waiters.push(resolve));
   }
 
   /** Convenience: run `fn(monitor)` between start and stop. */
-  static async with<T>(
+  static with<T>(
     connection: Connection,
     sessionId: string,
     modes: PromptMonitorMode[] | null,
     fn: (mon: PromptMonitor) => Promise<T>
   ): Promise<T> {
-    const mon = await new PromptMonitor(connection, sessionId, modes).start();
-    try {
-      return await fn(mon);
-    } finally {
-      await mon.stop();
-    }
+    return withMonitor(new PromptMonitor(connection, sessionId, modes), fn);
   }
 }

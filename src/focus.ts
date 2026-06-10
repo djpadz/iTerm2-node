@@ -6,14 +6,9 @@
  */
 
 import type { Connection } from './connection';
-import {
-  subscribeToFocusChangeNotification,
-  unsubscribe,
-  type SubscriptionToken,
-} from './notifications';
+import { BaseMonitor, withMonitor } from './monitor';
+import { subscribeToFocusChangeNotification } from './notifications';
 import type { iterm2 } from './generated/api';
-
-type FocusNotif = iterm2.FocusChangedNotification.$Properties;
 
 /** Describes a change in whether the application is active. */
 export class FocusUpdateApplicationActive {
@@ -85,7 +80,9 @@ export class FocusUpdate {
 }
 
 /** Decode a FocusChangedNotification proto into a FocusUpdate. */
-export function focusUpdateFromProto(proto: FocusNotif): FocusUpdate {
+export function focusUpdateFromProto(
+  proto: iterm2.FocusChangedNotification.$Properties
+): FocusUpdate {
   if (proto.applicationActive != null && proto.event === 'applicationActive') {
     return new FocusUpdate(
       new FocusUpdateApplicationActive(!!proto.applicationActive)
@@ -120,73 +117,27 @@ export function focusUpdateFromProto(proto: FocusNotif): FocusUpdate {
 }
 
 /** Monitors keyboard-focus changes. */
-export class FocusMonitor {
-  private _token: SubscriptionToken<FocusNotif> | null = null;
-  private _queue: FocusNotif[] = [];
-  private _waiters: Array<(value: FocusNotif) => void> = [];
+export class FocusMonitor extends BaseMonitor<FocusUpdate> {
+  constructor(conn: Connection) {
+    super(conn);
+  }
 
-  constructor(private readonly conn: Connection) {}
-
-  async start(): Promise<this> {
-    if (this._token) return this;
-    this._token = await subscribeToFocusChangeNotification(
+  protected _subscribe() {
+    return subscribeToFocusChangeNotification(
       this.conn,
-      async (_c, message) => this._enqueue(message)
+      async (_c, proto) => this._deliver(focusUpdateFromProto(proto))
     );
-    return this;
   }
 
-  async stop(): Promise<void> {
-    if (!this._token) return;
-    try {
-      await unsubscribe(this.conn, this._token);
-    } catch {
-      /* ignore */
-    }
-    this._token = null;
+  /** Resolves with the next FocusUpdate. Kept as an alias for `get()`. */
+  getNextUpdate(): Promise<FocusUpdate> {
+    return this.get();
   }
 
-  /** Resolves with the next FocusUpdate. */
-  async getNextUpdate(): Promise<FocusUpdate> {
-    const proto = await this._next();
-    return focusUpdateFromProto(proto);
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterableIterator<FocusUpdate> {
-    await this.start();
-    try {
-      while (true) {
-        yield await this.getNextUpdate();
-      }
-    } finally {
-      await this.stop();
-    }
-  }
-
-  static async with<T>(
+  static with<T>(
     conn: Connection,
     fn: (mon: FocusMonitor) => Promise<T>
   ): Promise<T> {
-    const mon = await new FocusMonitor(conn).start();
-    try {
-      return await fn(mon);
-    } finally {
-      await mon.stop();
-    }
-  }
-
-  private _enqueue(notif: FocusNotif): void {
-    const waiter = this._waiters.shift();
-    if (waiter) {
-      waiter(notif);
-    } else {
-      this._queue.push(notif);
-    }
-  }
-
-  private _next(): Promise<FocusNotif> {
-    const next = this._queue.shift();
-    if (next) return Promise.resolve(next);
-    return new Promise((resolve) => this._waiters.push(resolve));
+    return withMonitor(new FocusMonitor(conn), fn);
   }
 }

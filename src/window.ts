@@ -8,6 +8,13 @@ import { Session, Splitter, RPCException } from './session';
 import { Tab } from './tab';
 import { Frame, Point, Size, invocationString } from './util';
 import type { iterm2 } from './generated/api';
+import {
+  checkStatus,
+  closeTarget,
+  invokeFunctionFor,
+  setScopedVariable,
+  getScopedVariable,
+} from './_internal';
 
 export class CreateTabException extends Error {
   constructor(message: string) { super(message); this.name = 'CreateTabException'; }
@@ -20,13 +27,6 @@ export class SetPropertyException extends Error {
 }
 export class GetPropertyException extends Error {
   constructor(message: string) { super(message); this.name = 'GetPropertyException'; }
-}
-
-const STATUS_OK = 0;
-function checkStatus(status: number | null | undefined, label: string): void {
-  if ((status ?? 0) !== STATUS_OK) {
-    throw new RPCException(`${label} failed (status=${status})`);
-  }
 }
 
 export interface WindowDelegate {
@@ -257,31 +257,20 @@ export class Window {
     });
   }
 
-  async close(force = false): Promise<void> {
-    const res = await this.api.closeRequest({
-      windows: { windowIds: [this.windowId] },
-      force,
-    });
-    const status = res.statuses?.[0] ?? STATUS_OK;
-    checkStatus(status, 'close');
+  close(force = false): Promise<void> {
+    return closeTarget(
+      this.api,
+      { windows: { windowIds: [this.windowId] } },
+      force
+    );
   }
 
-  async setVariable(name: string, value: unknown): Promise<void> {
-    const res = await this.api.variable({
-      windowId: this.windowId,
-      set: [{ name, value: JSON.stringify(value) }],
-    });
-    checkStatus(res.status, 'setVariable');
+  setVariable(name: string, value: unknown): Promise<void> {
+    return setScopedVariable(this.api, { windowId: this.windowId }, name, value);
   }
 
-  async getVariable(name: string): Promise<unknown> {
-    const res = await this.api.variable({
-      windowId: this.windowId,
-      get: [name],
-    });
-    checkStatus(res.status, 'getVariable');
-    const raw = res.values?.[0];
-    return raw == null || raw === '' ? null : JSON.parse(raw);
+  getVariable(name: string): Promise<unknown> {
+    return getScopedVariable(this.api, { windowId: this.windowId }, name);
   }
 
   async setTitle(title: string): Promise<void> {
@@ -289,18 +278,13 @@ export class Window {
     await this.invokeFunction(invocation);
   }
 
-  async invokeFunction(invocation: string, timeoutSeconds = -1): Promise<unknown> {
-    const res = await this.api.invokeFunction({
+  invokeFunction(invocation: string, timeoutSeconds = -1): Promise<unknown> {
+    return invokeFunctionFor(
+      this.api,
+      { window: { windowId: this.windowId } },
       invocation,
-      window: { windowId: this.windowId },
-      timeout: timeoutSeconds,
-    });
-    if (res.error) {
-      throw new RPCException(
-        `invokeFunction: status=${res.error.status} ${res.error.errorReason ?? ''}`
-      );
-    }
-    return res.success?.jsonResult ? JSON.parse(res.success.jsonResult) : null;
+      timeoutSeconds
+    );
   }
 
   async saveWindowAsArrangement(name: string): Promise<void> {
