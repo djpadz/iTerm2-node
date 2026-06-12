@@ -1,6 +1,6 @@
 {
   "name": "iterm2-node",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "TypeScript client for the iTerm2 WebSocket API. Faithful port of the official Python `iterm2` package.",
   "type": "commonjs",
   "main": "dist/index.js",
