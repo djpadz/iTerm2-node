@@ -1,0 +1,43 @@
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+jobs:
+  check-semver-labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check for Semver Labels
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: exactly
+          count: 1
+          labels: |
+            patch
+            minor
+            major
+          add_comment: true
+          message: "You must provide {{ errorString }} {{ count }} of the following labels to merge in this PR: {{ provided }}."
+      - name: Check for RC Labels
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: at-most
+          count: 1
+          labels: |
+            release-candidate
+            alpha
+            beta
+          add_comment: true
+          message: "You can only provide {{ errorString }} {{ count }} of the following labels to merge in this PR: {{ provided }}."
+      - name: Check for non-merge labels
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: at-most
+          count: 0
+          labels: |
+            do-not-merge
+            work-in-progress
+          add_comment: true
+          message: "You cannot provide {{ errorString }} {{ count }} of the following labels to merge in this PR: {{ provided }}."

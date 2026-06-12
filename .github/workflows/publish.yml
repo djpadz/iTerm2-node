@@ -1,0 +1,31 @@
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - id: bump-version
+        uses: "phips28/gh-action-bump-version@v11.0.7"
+        with:
+          patch-wording: "PATCH:,FIX:"
+          minor-wording: "MINOR:"
+          major-wording: "MAJOR:"
+          rc-wording: "RELEASE:,alpha:,beta:"
+          commit-message: "Bump version to {{version}}"
+          tag-prefix: "v"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+          registry-url: https://npm.pkg.github.com/
+      - run: npm i
+      - run: npm run build
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
